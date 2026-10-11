@@ -147,3 +147,17 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Local environment and editor files
+**/node_modules/
+**/.env
+**/.env.*
+!.env.example
+
+# Build output
+**/dist/
+**/build/
+
+# VS Code settings
+.vscode/
+
