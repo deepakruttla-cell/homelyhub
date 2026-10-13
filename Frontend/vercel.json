@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/v1/:path*",
-      "destination":" https://dashboard.render.com/project/prj-db5om78473hc73bt2fv0"
+      "destination":"https://homelyhub-5rzh.onrender.com"
     }
   ]
 }

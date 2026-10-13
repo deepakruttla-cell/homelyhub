@@ -1,81 +1,166 @@
-import a6a from 'mongoose';
-import a6b from 'validator';
-import a6c from 'bcrypt';
-import a6d from 'crypto';
-const userSchema = new a6a['Schema']({
-    'name': {
-        'type': String,
-        'required': [
-            !![],
-            'Please\x20enter\x20your\x20name'
-        ]
+
+import bcrypt from 'bcrypt';
+import validator from 'validator';
+import crypto from 'crypto';
+import { pool } from '../utils/db.js';
+
+const User = {
+    async create({ name, email, password, passwordConfirm, phoneNumber }) {
+        if (!name || !email || !password || !phoneNumber) {
+            throw new Error('Please provide all required fields');
+        }
+
+        if (!validator.isEmail(email)) {
+            throw new Error('Please enter a valid email address');
+        }
+
+        if (password.length < 6) {
+            throw new Error('Password must be at least 6 characters');
+        }
+
+        if (password !== passwordConfirm) {
+            throw new Error('Passwords do not match');
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 12);
+
+        const result = await pool.query(
+            `INSERT INTO users (name, email, password, phone_number)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, name, email, phone_number`,
+            [name, email.toLowerCase(), hashedPassword, phoneNumber]
+        );
+
+        return result.rows[0];
     },
-    'email': {
-        'type': String,
-        'required': [
-            !![],
-            'Please\x20enter\x20your\x20email'
-        ],
-        'unique': !![],
-        'lowercase': !![],
-        'validate': [
-            a6b['isEmail'],
-            'Please\x20enter\x20a\x20valid\x20email\x20address'
-        ]
+
+    async findByEmail(email) {
+        const result = await pool.query(
+            'SELECT * FROM users WHERE email = $1',
+            [email.toLowerCase()]
+        );
+
+        return result.rows[0] || null;
     },
-    'password': {
-        'type': String,
-        'required': [
-            !![],
-            'Please\x20enter\x20your\x20password'
-        ],
-        'minlength': [
-            0x6,
-            'Your\x20password\x20must\x20be\x20longer\x20than\x206\x20characters'
-        ],
-        'select': ![]
+
+    async findById(id) {
+        const result = await pool.query(
+            `SELECT id, name, email, phone_number,
+                    avatar_url, avatar_public_id, password_changed_at
+             FROM users WHERE id = $1`,
+            [id]
+        );
+
+        return result.rows[0] || null;
     },
-    'passwordConfirm': {
-        'type': String,
-        'require': [
-            !![],
-            'Plesae\x20confim\x20your\x20Password'
-        ],
-        'validate': function (a) {
-            return a === this['password'];
-        },
-        'message': 'Password\x20are\x20not\x20same!'
+
+    async correctPassword(candidatePassword, hashedPassword) {
+        return bcrypt.compare(candidatePassword, hashedPassword);
     },
-    'phoneNumber': {
-        'type': String,
-        'required': !![],
-        'unique': !![]
+
+    async updateProfile(id, { name, phoneNumber, avatarUrl, avatarPublicId }) {
+        const result = await pool.query(
+            `UPDATE users
+             SET name = COALESCE($1, name),
+                 phone_number = COALESCE($2, phone_number),
+                 avatar_url = COALESCE($3, avatar_url),
+                 avatar_public_id = COALESCE($4, avatar_public_id),
+                 updated_at = NOW()
+             WHERE id = $5
+             RETURNING id, name, email, phone_number,
+                       avatar_url, avatar_public_id`,
+            [name ?? null, phoneNumber ?? null, avatarUrl ?? null,
+             avatarPublicId ?? null, id]
+        );
+
+        return result.rows[0] || null;
     },
-    'avatar': {
-        'url': { 'type': String },
-        'public_id': { 'type': String }
+
+    async findByIdWithPassword(id) {
+        const result = await pool.query(
+            'SELECT * FROM users WHERE id = $1',
+            [id]
+        );
+
+        return result.rows[0] || null;
     },
-    'passwordChangedAt': { 'type': Date },
-    'passwordResetToken': String,
-    'passwordResetExpires': Date
-}, { 'timestamps': !![] });
-userSchema['pre']('save', async function (a) {
-    if (!this['isModified']('password'))
-        return a();
-    this['password'] = await a6c['hash'](this['password'], 0xc), this['passwordConfirm'] = undefined, a();
-}), userSchema['methods']['correctPassword'] = async function (a, b) {
-    return await a6c['compare'](a, b);
-}, userSchema['methods']['changedPasswordAfter'] = function (a) {
-    if (this['passwordChangedAt']) {
-        const b = parseInt(this['passwordChangedAt']['getTime']() / 0x3e8, 0xa);
-        return a < b;
+
+    async updatePassword(id, password, passwordConfirm) {
+        if (!password || password.length < 6) {
+            throw new Error('Password must be at least 6 characters');
+        }
+
+        if (password !== passwordConfirm) {
+            throw new Error('Passwords do not match');
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 12);
+
+        const result = await pool.query(
+            `UPDATE users
+             SET password = $1, password_changed_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = $2
+             RETURNING id, name, email, phone_number, password_changed_at`,
+            [hashedPassword, id]
+        );
+
+        return result.rows[0] || null;
+    },
+
+    async createPasswordResetToken(email) {
+        const token = crypto.randomBytes(32).toString('hex');
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+        const result = await pool.query(
+            `UPDATE users
+             SET password_reset_token = $1,
+                 password_reset_expires = NOW() + INTERVAL '10 minutes'
+             WHERE email = $2
+             RETURNING id`,
+            [hashedToken, email.toLowerCase()]
+        );
+
+        if (!result.rowCount) {
+            throw new Error('User not found');
+        }
+
+        return token;
+    },
+
+    async findByResetToken(hashedToken) {
+        const result = await pool.query(
+            `SELECT id, name, email
+             FROM users
+             WHERE password_reset_token = $1
+               AND password_reset_expires > NOW()`,
+            [hashedToken]
+        );
+
+        return result.rows[0] || null;
+    },
+
+    async resetPassword(id, password, passwordConfirm) {
+        if (!password || password.length < 6 || password !== passwordConfirm) {
+            throw new Error('Invalid password or passwords do not match');
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 12);
+
+        const result = await pool.query(
+            `UPDATE users
+             SET password = $1,
+                 password_changed_at = NOW(),
+                 password_reset_token = NULL,
+                 password_reset_expires = NULL,
+                 updated_at = NOW()
+             WHERE id = $2
+             RETURNING id, name, email, phone_number, password_changed_at`,
+            [hashedPassword, id]
+        );
+
+        return result.rows[0] || null;
     }
-    return ![];
-}, userSchema['methods']['createPasswordResetToken'] = function () {
-    const a = a6d['randomBytes'](0x20)['toString']('hex');
-    return this['passwordResetToken'] = a6d['createHash']('sha256')['update'](a)['digest']('hex'), this['passwordResetExpires'] = Date['now']() + 0xa * 0x3c * 0x3e8, a;
 };
-const User = a6a['model']('User', userSchema);
-export {
-    User
-};
+
+export { User };

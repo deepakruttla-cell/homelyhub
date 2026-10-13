@@ -1,130 +1,157 @@
-import a5a from 'mongoose';
-import a5b from 'slugify';
-const propertySchema = new a5a['Schema']({
-    'propertyName': {
-        'type': String,
-        'required': [
-            !![],
-            'Please\x20enter\x20your\x20property\x20name'
-        ]
-    },
-    'description': {
-        'type': String,
-        'required': [
-            !![],
-            'Please\x20add\x20information\x20about\x20your\x20property'
-        ]
-    },
-    'extraInfo': {
-        'type': String,
-        'default': 'Nestled\x20in\x20a\x20tranquil\x20neighborhood,\x20the\x20house\x20exudes\x20an\x20aura\x20of\x20charm\x20and\x20elegance.\x20The\x20exterior\x20is\x20adorned\x20with\x20a\x20harmonious\x20blend\x20of\x20classic\x20and\x20contemporary\x20architectural\x20elements,\x20featuring\x20a\x20beautiful\x20brick\x20facade\x20and\x20a\x20welcoming\x20front\x20porch.As\x20you\x20step\x20inside,\x20you\x20are\x20greeted\x20by\x20a\x20spacious,\x20sunlit\x20living\x20room\x20with\x20high\x20ceilings\x20and\x20large\x20windows\x20that\x20invite\x20an\x20abundance\x20of\x20natural\x20light.\x20The\x20hardwood\x20floors\x20add\x20a\x20touch\x20of\x20warmth\x20to\x20the\x20space,\x20complementing\x20the\x20neutral\x20color\x20palette.The\x20kitchen\x20is\x20a\x20chef\x27s\x20dream,\x20equipped\x20with\x20modern\x20appliances,\x20sleek\x20countertops,\x20and\x20ample\x20storage\x20space.\x20It\x20opens\x20up\x20to\x20a\x20cozy\x20dining\x20area,\x20creating\x20a\x20perfect\x20setting\x20for\x20family\x20meals\x20and\x20gatherings.'
-    },
-    'propertyType': {
-        'type': String,
-        'enum': [
-            'House',
-            'Flat',
-            'Guest\x20House',
-            'Hotel'
-        ],
-        'default': 'House'
-    },
-    'roomType': {
-        'type': String,
-        'enum': [
-            'Anytype',
-            'Room',
-            'Entire\x20Home'
-        ],
-        'default': 'Anytype'
-    },
-    'maximumGuest': {
-        'type': Number,
-        'required': [
-            !![],
-            'Please\x20give\x20the\x20maximum\x20no\x20of\x20Guest\x20that\x20can\x20occupy'
-        ]
-    },
-    'amenities': [{
-            'name': {
-                'type': String,
-                'required': !![],
-                'enum': [
-                    'Wifi',
-                    'Kitchen',
-                    'Ac',
-                    'Washing\x20Machine',
-                    'Tv',
-                    'Pool',
-                    'Free\x20Parking'
-                ]
-            },
-            'icon': {
-                'type': String,
-                'required': !![]
-            }
-        }],
-    'images': {
-        'type': [{
-                'public_id': { 'type': String },
-                'url': {
-                    'type': String,
-                    'required': !![]
-                }
-            }],
-        'validate': {
-            'validator': function (a) {
-                return a['length'] >= 0x6;
-            },
-            'message': 'The\x20images\x20array\x20must\x20contain\x20at\x20least\x205\x20images.'
+
+import slugify from 'slugify';
+import { pool } from '../utils/db.js';
+
+const Property = {
+    async create(data) {
+        const {
+            propertyName,
+            description,
+            extraInfo,
+            propertyType = 'House',
+            roomType = 'Anytype',
+            maximumGuest,
+            amenities = [],
+            images = [],
+            price = 500,
+            address = {},
+            userId,
+            chekInTime = '11:00',
+            chekOutTime = '13:00'
+        } = data;
+
+        if (!propertyName || !description || !maximumGuest || !userId) {
+            throw new Error(
+                'Property name, description, maximum guests and user are required'
+            );
         }
-    },
-    'price': {
-        'type': Number,
-        'required': [
-            !![],
-            'Please\x20enter\x20the\x20Price\x20per\x20night\x20value'
-        ],
-        'default': 0x1f4
-    },
-    'address': {
-        'area': String,
-        'city': String,
-        'state': String,
-        'pincode': Number
-    },
-    'currentBookings': [{
-            'bookingId': {
-                'type': a5a['Schema']['Types']['ObjectId'],
-                'ref': 'Booking'
-            },
-            'fromDate': Date,
-            'toDate': Date,
-            'userId': {
-                'type': a5a['Schema']['Types']['ObjectId'],
-                'ref': 'User'
+
+        if (!Array.isArray(images) || images.length < 5) {
+            throw new Error('At least 5 property images are required');
+        }
+
+        const validTypes = ['House', 'Flat', 'Guest House', 'Hotel'];
+        const validRoomTypes = ['Anytype', 'Room', 'Entire Home'];
+        const validAmenities = [
+            'Wifi',
+            'Kitchen',
+            'Ac',
+            'Washing Machine',
+            'Tv',
+            'Pool',
+            'Free Parking'
+        ];
+
+        if (!validTypes.includes(propertyType)) {
+            throw new Error('Invalid property type');
+        }
+
+        if (!validRoomTypes.includes(roomType)) {
+            throw new Error('Invalid room type');
+        }
+
+        for (const amenity of amenities) {
+            if (
+                !amenity.name ||
+                !validAmenities.includes(amenity.name) ||
+                !amenity.icon
+            ) {
+                throw new Error('Invalid amenity name or icon');
             }
-        }],
-    'userId': {
-        'type': a5a['Schema']['Types']['ObjectId'],
-        'ref': 'User'
+        }
+
+        for (const image of images) {
+            if (!image.url) {
+                throw new Error('Every image must have a URL');
+            }
+        }
+
+        const city = (address.city || '').replaceAll(' ', '').toLowerCase();
+        const slug = slugify(propertyName, { lower: true });
+
+        const result = await pool.query(
+            `INSERT INTO properties (
+                property_name,
+                description,
+                extra_info,
+                property_type,
+                room_type,
+                maximum_guest,
+                amenities,
+                images,
+                price,
+                address_area,
+                address_city,
+                address_state,
+                address_pincode,
+                user_id,
+                slug,
+                check_in_time,
+                check_out_time
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb,
+                $9, $10, $11, $12, $13, $14, $15, $16, $17
+            )
+            RETURNING *`,
+            [
+                propertyName,
+                description,
+                extraInfo || null,
+                propertyType,
+                roomType,
+                maximumGuest,
+                JSON.stringify(amenities),
+                JSON.stringify(images),
+                price,
+                address.area || null,
+                city || null,
+                address.state || null,
+                address.pincode || null,
+                userId,
+                slug,
+                chekInTime,
+                chekOutTime
+            ]
+        );
+
+        return result.rows[0];
     },
-    'slug': String,
-    'chekInTime': {
-        'type': String,
-        'default': '11:00'
+
+    async findById(id) {
+        const result = await pool.query(
+            'SELECT * FROM properties WHERE id = $1',
+            [id]
+        );
+
+        return result.rows[0] || null;
     },
-    'chekOutTime': {
-        'type': String,
-        'default': '13:00'
+
+    async findAll() {
+        const result = await pool.query(
+            'SELECT * FROM properties ORDER BY created_at DESC'
+        );
+
+        return result.rows;
+    },
+
+    async findByUserId(userId) {
+        const result = await pool.query(
+            'SELECT * FROM properties WHERE user_id = $1 ORDER BY created_at DESC',
+            [userId]
+        );
+
+        return result.rows;
+    },
+
+    async deleteById(id) {
+        const result = await pool.query(
+            'DELETE FROM properties WHERE id = $1 RETURNING *',
+            [id]
+        );
+
+        return result.rows[0] || null;
     }
-});
-propertySchema['pre']('save', function (a) {
-    this['slug'] = a5b(this['propertyName'], { 'lower': !![] }), a();
-}), propertySchema['pre']('save', function (a) {
-    this['address']['city'] = this['address']['city']['toLowerCase']()['replaceAll']('\x20', ''), a();
-});
-const Property = a5a['model']('Property', propertySchema);
-export {
-    Property
 };
+
+export { Property };

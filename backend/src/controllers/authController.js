@@ -1,184 +1,279 @@
+
 import { User } from '../Models/userModel.js';
 import { promisify } from 'node:util';
-import a0a from 'jsonwebtoken';
-import a0b from 'crypto';
-import a0c from '../utils/ImagekitIO.js';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import ImageKit from '../utils/ImagekitIO.js';
 import {
     forgotPasswordMailGenContent,
     sendMail
 } from '../utils/mail.js';
-const signinToken = a => {
-        return a0a['sign']({ 'id': a }, process['env']['JWT_SECRET'], { 'expiresIn': process['env']['JWT_EXPIRES_IN'] });
-    }, createSendToken = (a, b, c) => {
-        const d = signinToken(a['_id']), e = {
-                'expires': new Date(Date['now']() + process['env']['JWT_COOKIE_EXPIRES_IN'] * 0x18 * 0x3c * 0x3c * 0x3e8),
-                'httpOnly': !![],
-                'sameSite': process['env']['NODE_ENV'] === 'production' ? 'none' : 'lax',
-                'secure': process['env']['NODE_ENV'] === 'production'
-            };
-        c['cookie']('jwt', d, e), a['password'] = undefined, c['status'](b)['json']({
-            'status': 'Success',
-            'token': d,
-            'user': a
+
+const signToken = (id) => {
+    return jwt.sign({ id }, process.env.JWT_SECRET, {
+        expiresIn: process.env.JWT_EXPIRES_IN
+    });
+};
+
+const createSendToken = (user, statusCode, res) => {
+    const token = signToken(user.id);
+
+    res.cookie('jwt', token, {
+        expires: new Date(
+            Date.now() +
+            Number(process.env.JWT_COOKIE_EXPIRES_IN || 1) *
+            24 * 60 * 60 * 1000
+        ),
+        httpOnly: true,
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        secure: process.env.NODE_ENV === 'production'
+    });
+
+    const { password, ...safeUser } = user;
+
+    return res.status(statusCode).json({
+        status: 'Success',
+        token,
+        user: safeUser
+    });
+};
+
+const defaultAvatarUrl = 'https://i.pravatar.cc/150?img=3';
+
+const signup = async (req, res) => {
+    try {
+        const user = await User.create({
+            name: req.body.name,
+            email: req.body.email,
+            phoneNumber: req.body.phoneNumber,
+            password: req.body.password,
+            passwordConfirm: req.body.passwordConfirm
         });
-    }, defaultAvatarUrl = 'https://i.pravatar.cc/150?img=3\x0a', filterObj = (a, ...b) => {
-        let c = {};
-        return Object['keys'](a)['forEach'](d => {
-            if (b['includes'](d))
-                c[d] = a[d];
-        }), c;
-    }, signup = async (a, b) => {
-        try {
-            const c = await User['create']({
-                'name': a['body']['name'],
-                'email': a['body']['email'],
-                'phoneNumber': a['body']['phoneNumber'],
-                'password': a['body']['password'],
-                'passwordConfirm': a['body']['passwordConfirm'],
-                'avatar': { 'url': a['body']['avatar'] || defaultAvatarUrl }
-            });
-            createSendToken(c, 0xc9, b);
-        } catch (d) {
-            b['status'](0x190)['json']({ 'message': d['message'] });
+
+        return createSendToken(user, 201, res);
+    } catch (error) {
+        return res.status(400).json({ message: error.message });
+    }
+};
+
+const login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            throw new Error('Please provide email and password');
         }
-    }, login = async (a, b) => {
-        try {
-            const {
-                email: c,
-                password: d
-            } = a['body'];
-            if (!c || !d)
-                throw new Error('Please\x20Provide\x20email\x20and\x20password');
-            const e = await User['findOne']({ 'email': c })['select']('+password');
-            if (!e || await e['correctPassword'](d, e['password']) === ![])
-                throw new Error('Incorrect\x20email\x20or\x20password');
-            createSendToken(e, 0xc8, b);
-        } catch (f) {
-            b['status'](0x190)['json']({
-                'status': 'fail',
-                'message': f['message']
-            });
+
+        const user = await User.findByEmail(email);
+
+        if (!user || !(await User.correctPassword(password, user.password))) {
+            throw new Error('Incorrect email or password');
         }
-    }, logout = (a, b) => {
-        const c = {
-            'expires': new Date(0x0),
-            'httpOnly': !![],
-            'path': '/'
-        };
-        process['env']['NODE_ENV'] === 'production' ? (c['sameSite'] = 'none', c['secure'] = !![]) : (c['sameSite'] = 'lax', c['secure'] = ![]), b['cookie']('jwt', '', c), b['status'](0xc8)['json']({
-            'status': 'success',
-            'message': 'Logged\x20out\x20successfully'
+
+        return createSendToken(user, 200, res);
+    } catch (error) {
+        return res.status(401).json({
+            status: 'fail',
+            message: error.message
         });
-    }, protect = async (a, b, c) => {
-        try {
-            let d;
-            if (a['headers']['authorization'] && a['headers']['authorization']['startsWith']('Bearer'))
-                d = a['headers']['authorization']['split']('\x20')[0x1];
-            else
-                a['cookies']['jwt'] && a['cookies']['jwt'] !== 'loggedout' && (d = a['cookies']['jwt']);
-            if (!d)
-                throw new Error('You\x20are\x20not\x20logged\x20in!!\x20Please\x20login\x20to\x20access');
-            const e = await promisify(a0a['verify'])(d, process['env']['JWT_SECRET']), f = await User['findById'](e['id']);
-            if (!f)
-                throw new Error('the\x20user\x20belonging\x20to\x20the\x20token\x20dosen\x27t\x20exists');
-            if (f['changedPasswordAfter'](e['iat']))
-                throw new Error('user\x20recently\x20changed\x20the\x20password,\x20Please\x20login\x20again');
-            a['user'] = f, c();
-        } catch (g) {
-            b['status'](0x191)['json']({
-                'status': 'fail',
-                'message': g['message']
+    }
+};
+
+const logout = (req, res) => {
+    res.cookie('jwt', '', {
+        expires: new Date(0),
+        httpOnly: true,
+        path: '/',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        secure: process.env.NODE_ENV === 'production'
+    });
+
+    return res.status(200).json({
+        status: 'success',
+        message: 'Logged out successfully'
+    });
+};
+
+const protect = async (req, res, next) => {
+    try {
+        let token;
+
+        if (req.headers.authorization?.startsWith('Bearer ')) {
+            token = req.headers.authorization.split(' ')[1];
+        } else if (req.cookies?.jwt && req.cookies.jwt !== 'loggedout') {
+            token = req.cookies.jwt;
+        }
+
+        if (!token) {
+            throw new Error('You are not logged in. Please log in to access this resource.');
+        }
+
+        const decoded = await promisify(jwt.verify)(
+            token,
+            process.env.JWT_SECRET
+        );
+
+        const user = await User.findById(decoded.id);
+
+        if (!user) {
+            throw new Error('The user belonging to this token no longer exists');
+        }
+
+        if (
+            user.password_changed_at &&
+            Math.floor(new Date(user.password_changed_at).getTime() / 1000) >
+                decoded.iat
+        ) {
+            throw new Error('Password recently changed. Please log in again.');
+        }
+
+        req.user = user;
+        return next();
+    } catch (error) {
+        return res.status(401).json({
+            status: 'fail',
+            message: error.message
+        });
+    }
+};
+
+const updateMe = async (req, res) => {
+    try {
+        const { name, phoneNumber } = req.body;
+        let avatarUrl;
+        let avatarPublicId;
+
+        if (req.body.avatar) {
+            const uploaded = await ImageKit.upload({
+                file: req.body.avatar,
+                fileName: `avatar_${Date.now()}.jpg`,
+                folder: 'avatars'
+            });
+
+            avatarUrl = uploaded.url;
+            avatarPublicId = uploaded.fileId;
+        }
+
+        const user = await User.updateProfile(req.user.id, {
+            name,
+            phoneNumber,
+            avatarUrl,
+            avatarPublicId
+        });
+
+        return res.status(200).json({
+            status: 'Success',
+            data: { user }
+        });
+    } catch (error) {
+        return res.status(400).json({
+            status: 'Fail',
+            message: error.message
+        });
+    }
+};
+
+const updatePassword = async (req, res) => {
+    try {
+        const user = await User.findByIdWithPassword(req.user.id);
+
+        if (
+            !user ||
+            !(await User.correctPassword(
+                req.body.passwordCurrent,
+                user.password
+            ))
+        ) {
+            throw new Error('Your current password is wrong');
+        }
+
+        const updatedUser = await User.updatePassword(
+            req.user.id,
+            req.body.password,
+            req.body.passwordConfirm
+        );
+
+        return createSendToken(updatedUser, 200, res);
+    } catch (error) {
+        return res.status(400).json({
+            status: 'fail',
+            message: error.message
+        });
+    }
+};
+
+const forgotPassword = async (req, res) => {
+    try {
+        const user = await User.findByEmail(req.body.email);
+
+        if (!user) {
+            return res.status(404).json({
+                error: 'There is no user with this email'
             });
         }
-    }, updateMe = async (a, b) => {
-        try {
-            const c = filterObj(a['body'], 'name', 'phoneNumber', 'avatar');
-            if (a['body']['avatar'] !== undefined) {
-                let e = a['body']['avatar'];
-                const f = await a0c['upload']({
-                    'file': e,
-                    'fileName': 'avatar_' + Date['now']() + '.jpg',
-                    'folder': 'avatars'
-                });
-                c['avatar'] = {
-                    'public_id': f['fileId'],
-                    'url': f['url']
-                };
-            }
-            const d = await User['findByIdAndUpdate'](a['user']['id'], c, {
-                'new': !![],
-                'runValidators': !![],
-                'useFindAndModify': ![]
-            });
-            b['status'](0xc8)['json']({
-                'status': 'Success',
-                'data': { 'user': d }
-            });
-        } catch (g) {
-            b['status'](0x191)['json']({
-                'status': 'Fail',
-                'message': g['message']
-            });
+
+        const token = await User.createPasswordResetToken(user.email);
+
+        const frontendUrl =
+            process.env.FRONTEND_URL || 'http://localhost:5173';
+
+        const resetUrl =
+            `${frontendUrl}/user/resetPassword/${token}`;
+
+        await sendMail({
+            email: user.email,
+            subject: 'Reset your Password (valid for 10 mins)',
+            mailGenContent: forgotPasswordMailGenContent(
+                user.name,
+                resetUrl
+            )
+        });
+
+        return res.status(200).json({
+            status: 'success',
+            message: 'Token sent successfully'
+        });
+    } catch (error) {
+        return res.status(400).json({ error: error.message });
+    }
+};
+
+const resetPassword = async (req, res) => {
+    try {
+        const hashedToken = crypto
+            .createHash('sha256')
+            .update(req.params.token)
+            .digest('hex');
+
+        const user = await User.findByResetToken(hashedToken);
+
+        if (!user) {
+            throw new Error('Token is invalid or expired');
         }
-    }, updatePassword = async (a, b) => {
-        try {
-            const c = await User['findById'](a['user']['id'])['select']('+password');
-            if (!await c['correctPassword'](a['body']['passwordCurrent'], c['password']))
-                throw new Error('Your\x20current\x20password\x20is\x20wrong');
-            c['password'] = a['body']['password'], c['passwordConfirm'] = a['body']['passwordConfirm'], await c['save'](), createSendToken(c, 0xc8, b);
-        } catch (d) {
-            b['status'](0x194)['json']({
-                'status': 'fail',
-                'message': d['message']
-            });
-        }
-    }, forgotPassword = async (a, b) => {
-        const c = await User['findOne']({ 'email': a['body']['email'] });
-        !c && b['status'](0x190)['json']({ 'error': 'There\x20is\x20no\x20user\x20with\x20this\x20email' });
-        const d = c['createPasswordResetToken']();
-        await c['save']({ 'validateBeforeSave': ![] });
-        const e = 'http://localhost:5173/user/resetPassword/' + d;
-        try {
-            await sendMail({
-                'email': c['email'],
-                'subject': 'Reset\x20your\x20Password\x20(valid\x20for\x2010\x20mins)',
-                'mailGenContent': forgotPasswordMailGenContent(c['name'], e)
-            }), b['status'](0xc8)['json']({
-                'status': 'success',
-                'message': 'Token\x20sent\x20successfully'
-            });
-        } catch (f) {
-            b['status'](0x190)['json']({ 'error': f['message'] });
-        }
-    }, resetPassword = async (a, b) => {
-        try {
-            const c = a0b['createHash']('sha256')['update'](a['params']['token'])['digest']('hex'), d = await User['findOne']({
-                    'passwordResetToken': c,
-                    'passwordResetExpires': { '$gt': Date['now']() }
-                });
-            if (!d)
-                throw new Error('Token\x20is\x20invalid\x20or\x20expired');
-            d['password'] = a['body']['password'], d['passwordConfirm'] = a['body']['passwordConfirm'], d['passwordResetToken'] = undefined, d['passwordResetExpires'] = undefined, await d['save'](), createSendToken(d, 0xc8, b);
-        } catch (e) {
-            b['status'](0x190)['json']({
-                'status': 'fail',
-                'error': e['message']
-            });
-        }
-    }, check = async (a, b) => {
-        try {
-            b['status'](0xc8)['json']({
-                'status': 'success',
-                'message': 'Logged\x20In',
-                'user': a['user']
-            });
-        } catch (c) {
-            b['status'](0x190)['json']({
-                'status': 'fail',
-                'message': 'UnAuthorised'
-            });
-        }
-    };
+
+        const updatedUser = await User.resetPassword(
+            user.id,
+            req.body.password,
+            req.body.passwordConfirm
+        );
+
+        return createSendToken(updatedUser, 200, res);
+    } catch (error) {
+        return res.status(400).json({
+            status: 'fail',
+            error: error.message
+        });
+    }
+};
+
+const check = async (req, res) => {
+    return res.status(200).json({
+        status: 'success',
+        message: 'Logged In',
+        user: req.user
+    });
+};
+
 export {
     signup,
     login,
