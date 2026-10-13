@@ -57,8 +57,7 @@ function App() {
 
             {/* Accomodation Routes */}
             <Route path="accomodation" element={<Accomodation />} />
-            <Route path="accomodationform" element={<AccomodationForm />} />
-
+<Route path="accomodationform" element={<AccomodationForm />} />
           </Route>
         </Routes>
       </Router>
