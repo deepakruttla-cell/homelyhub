@@ -41,7 +41,8 @@ function App() {
 
             {/* user routes */}
             <Route path="login" element={<Login />} />
-            <Route path="signup" element={<Signup />} />
+            
+            <Route path="/signup" element={<Signup />} />
             <Route path="profile" element={<Profile />} />
             <Route path="editprofile" element={user ? <EditProfile /> : <Navigate to="/login" />} />
 

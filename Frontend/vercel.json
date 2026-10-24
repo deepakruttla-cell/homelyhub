@@ -1,8 +1,9 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
-      "source": "/v1/:path*",
-      "destination":"https://homelyhub-5rzh.onrender.com"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
