@@ -1,68 +1,66 @@
-import React, { useState } from 'react'
-import Modal from "./Modal"
 
-const PropertyImg = ({images}) => {
-    const [isModalOpen, setIsModalOpen] = useState(false);
+import React, { useState } from 'react';
+import Modal from './Modal';
 
-    const handleShowAllPhotos = () =>{
-        setIsModalOpen(true)
+const PropertyImg = ({ images = [] }) => {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Keep only valid image objects with a URL.
+  const validImages = Array.isArray(images)
+    ? images.filter((image) => image && typeof image.url === 'string' && image.url.trim() !== '')
+    : [];
+
+  const handleShowAllPhotos = () => {
+    if (validImages.length > 0) {
+      setIsModalOpen(true);
     }
+  };
 
-    const handleCloseModal =()=>{
-        setIsModalOpen(false)
-    }
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+  };
 
-    // //Static Images
-    // const images = [
-    //     {url: "/assets/property2.webp"},
-    //     {url:"/assets/property3.webp"},
-    //     {url:"/assets/property4.webp"},
-    //     {url:"/assets/property5.webp"},
-    //     {url:"/assets/property3.webp"},
-    //     {url:"/assets/property3.webp"},
-    //     {url:"/assets/property3.webp"}
-    // ]
-
+  if (validImages.length === 0) {
+    return (
+      <div className="property-img-container">
+        <p>No property images available.</p>
+      </div>
+    );
+  }
 
   return (
     <>
-    <div className='property-img-container'>
-        <div className='img-item'>
-            <img src={images[0].url} 
-            className='images' 
-            style={{borderTopLeftRadius:"10px", borderBottomLeftRadius:"10px"}}
-            alt='property-1'
+      <div className="property-img-container">
+        {validImages.slice(0, 5).map((image, index) => (
+          <div className="img-item" key={`${image.url}-${index}`}>
+            <img
+              src={image.url}
+              className="images"
+              alt={`Property ${index + 1}`}
+              style={
+                index === 0
+                  ? { borderTopLeftRadius: '10px', borderBottomLeftRadius: '10px' }
+                  : index === 4
+                    ? { borderBottomRightRadius: '10px' }
+                    : undefined
+              }
             />
+          </div>
+        ))}
 
-        </div>
-
-        <div>
-            <img className='images' src={images[1].url} alt='property'/>
-        </div>
-         <div>
-            <img className='images' src={images[2].url} alt='property'/>
-        </div>
-         <div>
-            <img className='images' src={images[3].url} alt='property'/>
-        </div>
-      
-      <div >
-        <img className='images' src={images[5].url} 
-        style={{borderBottomRightRadius:"10px"}}
-        />
-        <button className='similar-photos' onClick={handleShowAllPhotos}>
-            <span className='material-symbols-outlined'>photo_library</span>
-
-        </button>
-
+        {validImages.length > 1 && (
+          <button className="similar-photos" onClick={handleShowAllPhotos}>
+            <span className="material-symbols-outlined">photo_library</span>
+            Show all photos
+          </button>
+        )}
       </div>
-    </div>
 
-    <div className='similar-photos-container'></div>
-    {isModalOpen && <Modal images={images} onClose={handleCloseModal}/>}
+      {isModalOpen && (
+        <Modal images={validImages} onClose={handleCloseModal} />
+      )}
     </>
-  )
-}
+  );
+};
 
-export default PropertyImg
- 
+export default PropertyImg;
